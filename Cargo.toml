@@ -1,5 +1,5 @@
 [package]
-name = "keyctrl"
+name = "clicky"
 version = "0.1.0"
 authors = ["John <johnmorris@tuta.io>"]
 edition = "2018"
