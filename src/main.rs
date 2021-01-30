@@ -1,15 +1,15 @@
 #![feature(never_type)]
 #![feature(str_split_once)]
 
-use core::convert::TryInto;
-use std::collections::HashSet;
 use anyhow::{anyhow, Result};
+use core::convert::TryInto;
+use midir::{MidiOutput, MidiOutputPort};
+use std::collections::HashSet;
 use winit::{
     event::{self, ElementState::*, Event, KeyboardInput, ScanCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
-use midir::{MidiOutput, MidiOutputPort};
 use wmidi::{MidiMessage, Note};
 
 const MIDI_OUTPUT_NAME: &str = env!("CARGO_PKG_NAME");
@@ -17,14 +17,13 @@ const MIDI_OUTPUT_NAME: &str = env!("CARGO_PKG_NAME");
 mod opts {
     use structopt::StructOpt;
 
-    pub fn get_opts() -> Opts{
+    pub fn get_opts() -> Opts {
         Opts::from_args()
     }
 
     #[derive(Debug, StructOpt)]
     #[structopt(author, about)]
     pub struct Opts {
-
         /// MIDI channel to run on
         #[structopt(short, long, parse(try_from_str = get_channel), default_value = "1")]
         pub channel: wmidi::Channel,
@@ -39,7 +38,15 @@ mod opts {
 
         /// List available MIDI output ports then exit
         #[structopt(short, long)]
-        pub list_midi_outputs: bool
+        pub list_midi_outputs: bool,
+
+        /// Output more information, can be passed multiple times
+        #[structopt(short, parse(from_occurrences))]
+        pub verbose: u64,
+
+        /// Output less information, can be passed multiple times
+        #[structopt(short, parse(from_occurrences))]
+        pub quiet: u64,
     }
 
     fn get_channel(s: &str) -> anyhow::Result<wmidi::Channel> {
@@ -48,72 +55,102 @@ mod opts {
 }
 
 fn main() {
-    use simple_logger::SimpleLogger;
-    use log::LevelFilter;
-
     let opts = opts::get_opts();
 
     if opts.list_midi_outputs {
         list_midi_outputs();
-        return
+        return;
     }
 
-
-    match SimpleLogger::new()
-        .with_level(LevelFilter::Debug)
-        .init() {
-            Ok(_) => log::trace!("logging initialized"),
-            Err(e) => eprintln!("Failed to initialize logging: {}", e)
-        }
+    init_logging(&opts);
 
     match run(opts) {
         Ok(_) => (),
-        Err(err) => log::error!("Error: {}", err)
+        Err(err) => log::error!("Error: {}", err),
     };
 }
 
+fn init_logging(opts: &opts::Opts) {
+    use log::LevelFilter::*;
+    use std::cmp::{max, min};
+
+    let default = 3;
+    let verbose = opts.verbose as i64;
+    let quiet = opts.quiet as i64;
+    let level = min(max(default + verbose - quiet, 0), 5);
+    assert!(level <= 5);
+    match simple_logger::SimpleLogger::new()
+        .with_level([Off, Error, Warn, Info, Debug, Trace][level as usize])
+        .init()
+    {
+        Ok(_) => log::trace!("Logging initialized"),
+        Err(e) => eprintln!("Failed to initialize logging: {}", e),
+    }
+}
+
+fn list_midi_outputs() {
+    let output = MidiOutput::new(MIDI_OUTPUT_NAME).unwrap();
+    let ports = output.ports();
+
+    println!("# -> name");
+    for (i, port) in ports.iter().enumerate() {
+        let name = output.port_name(port).unwrap_or(String::from("<unknown>"));
+        if let Some((device, _name)) = name.split_once(':') {
+            println!("{} -> {}", i, device);
+        };
+    }
+}
+
 fn run(opts: opts::Opts) -> Result<!> {
-
-
     let output = MidiOutput::new(MIDI_OUTPUT_NAME)?;
     let ports: &[MidiOutputPort] = &output.ports();
     let port = if let Some(name) = opts.port_name {
-        unimplemented!()
+        log::debug!("Connecting to port with name {}", name);
+        ports
+            .iter()
+            .find(|port| output.port_name(port) == Ok(name.clone()))
+            .ok_or(anyhow!("No MIDI port named {}", name))?
     } else if let Some(index) = opts.port_index {
-        unimplemented!()
+        log::debug!("Connecting to port with index {}", index);
+        ports
+            .get(index)
+            .ok_or(anyhow!("Port index {} out of range", index))?
     } else {
+        log::debug!("Connecting to first available port");
         match ports {
             [] => Err(anyhow!("No available MIDI outputs")),
             [port, ..] => Ok(port),
         }?
     };
 
+    let port_name = output.port_name(&port).unwrap_or(String::from("<unknown>"));
 
-    let port_name = output.port_name(&port)
-        .unwrap_or(String::from("<unknown>"));
+    let mut connection = output.connect(&port, MIDI_OUTPUT_NAME).map_err(|e| {
+        anyhow!(
+            "Couldn't connect to MIDI output port \"{}\": {}",
+            port_name,
+            e
+        )
+    })?;
 
-    let mut connection = output.connect(&port, MIDI_OUTPUT_NAME)
-        .map_err(|e| anyhow!("Couldn't connect to MIDI output port \"{}\": {}", port_name, e))?;
-
-    println!("Connected to midi port \"{}\"", port_name);
+    log::info!("Connected to midi port \"{}\"", port_name);
 
     let event_loop = EventLoop::new();
     let _window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut keys_pressed = HashSet::new();
-    let mut sustained = HashSet::new(); // this should be handled by the receiver using midi cc sustain
+    let mut sustained = HashSet::new(); // TODO this should be handled by the receiver using midi cc sustain
     let mut sustain_held = false;
 
-    let mut send_midi = move |message: MidiMessage | {
-        log::debug!("midi message: {:?}", message);
+    let mut send_midi = move |message: MidiMessage| {
+        log::trace!("midi message: {:?}", message);
         let mut bytes = [0u8, 0, 0];
         match message.copy_to_slice(&mut bytes) {
             Ok(length) => {
-                log::trace!("bytes: {:?}, length: {}", bytes, length);
                 if let Err(e) = connection.send(&bytes) {
-                    log::error!("Error sending MIDI message {:?}: {}", message, e);
-                };
-            },
-            Err(err) => log::error!("Error generating MIDI bytes: {}", err)
+                    log::warn!("Error sending MIDI message {:?}: {}", message, e);
+                }
+            }
+            Err(err) => log::warn!("Error generating MIDI bytes: {}", err),
         };
     };
 
@@ -124,7 +161,6 @@ fn run(opts: opts::Opts) -> Result<!> {
 
     let channel = opts.channel;
     let velocity = 127u8.try_into().unwrap();
-
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
@@ -137,13 +173,12 @@ fn run(opts: opts::Opts) -> Result<!> {
                         NoteOff(note) => {
                             if sustain_held {
                                 sustained.insert(note);
-                            }
-                            else {
+                            } else {
                                 send_midi(MidiMessage::NoteOff(channel, note, velocity));
                             }
-                        },
-                        Chord => {},
-                        KillAll => {},
+                        }
+                        Chord => {}
+                        KillAll => {}
                         SustainOn => sustain_held = true,
                         SustainOff => {
                             sustain_held = false;
@@ -160,15 +195,14 @@ fn run(opts: opts::Opts) -> Result<!> {
     });
 }
 
-fn get_midi_note(scancode: ScanCode) -> Option<Note> {
-    Some(Note::C1)
-}
-
+/// Convert a keyboard input into some kind of action for the MIDI controller, or other
 fn process_keyboard_input(
     input: KeyboardInput,
     keys_pressed: &mut HashSet<ScanCode>,
-    ) -> Option<ProcessedKeyboardInput> {
+) -> Option<ProcessedKeyboardInput> {
     use event::VirtualKeyCode::*;
+
+    log::trace!("keyboard input {:?}", input);
 
     if let Some(Escape) = input.virtual_keycode {
         return Some(Exit);
@@ -182,7 +216,7 @@ fn process_keyboard_input(
                 if input.virtual_keycode == Some(Space) {
                     Some(SustainOn)
                 } else {
-                    get_midi_note(input.scancode).map(NoteOn)
+                    get_midi_note(input).map(NoteOn)
                 }
             } else {
                 None
@@ -192,9 +226,8 @@ fn process_keyboard_input(
             if keys_pressed.remove(&input.scancode) {
                 if input.virtual_keycode == Some(Space) {
                     Some(SustainOff)
-                }
-                else {
-                    get_midi_note(input.scancode).map(NoteOff)
+                } else {
+                    get_midi_note(input).map(NoteOff)
                 }
             } else {
                 None
@@ -214,19 +247,50 @@ enum ProcessedKeyboardInput {
     SustainOff,
 }
 
-fn list_midi_outputs() -> Result<()> {
+fn get_midi_note(input: KeyboardInput) -> Option<Note> {
+    use core::convert::TryFrom;
+    scancode_to_note_index(input.scancode)
+        .map(wmidi::Note::try_from)
+        .and_then(Result::ok)
+}
 
-    let output = MidiOutput::new(MIDI_OUTPUT_NAME)?;
-    let ports = output.ports();
+// TODO Different note mappings, different keyboard layouts (?)
+fn scancode_to_note_index(code: ScanCode) -> Option<u8> {
+    /*
+       2 1, 3 2, 4 3, 5 4, 6 5, 7 6, 8 7, 9 8, 10 9, 11 0, 12 _, 13 +
+       16 q, 17 w, 18 e, 19 r, 20 t, 21 y, 22 u, 23 i, 24 o, 25 p, 26 [, 27 ]
+       30 a, 31 s, 32 d, 33 f, 34 g, 35 h, 36 j, 37 k, 38 l, 39 ;, 40 @, 41 ~
+       44 z, 45 x, 46 c, 47 v, 48 b, 49 n, 50 m, 51 <, 52 >, 53 /
 
-    println!("# -> name");
-    println!("____________");
-    for (i, port) in ports.iter().enumerate() {
-        let name = output.port_name(port)?;
-        if let Some((device, name)) = name.split_once(':') {
-            println!("{} -> {}", i, device);
-        };
+    */
+
+    // TODO make better somehow
+    let index = if code.between(44, 53) {
+        Some(code as u8 - 44)
+    } else if code.between(30, 41) {
+        Some(code as u8 - 20)
+    } else if code == 43 {
+        Some(21)
+    } else if code.between(16, 27) {
+        Some(code as u8 + 6)
+    } else if code.between(2, 13) {
+        Some(code as u8 + 32)
+    } else {
+        None
+    };
+    log::trace!("index for scancode {}: {:?}", code, index);
+    index
+}
+
+trait Between<T> {
+    fn between(&self, low: T, high: T) -> bool;
+}
+
+impl<T> Between<T> for T
+where
+    T: PartialEq + PartialOrd,
+{
+    fn between(&self, low: T, high: T) -> bool {
+        low <= *self && *self <= high
     }
-
-    Ok(())
 }
