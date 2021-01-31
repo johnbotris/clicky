@@ -58,7 +58,16 @@ fn main() {
     let opts = opts::get_opts();
 
     if opts.list_midi_outputs {
-        list_midi_outputs();
+        let output = MidiOutput::new(MIDI_OUTPUT_NAME).unwrap();
+        let ports = output.ports();
+
+        println!("Available MIDI outputs");
+        for (i, port) in ports.iter().enumerate() {
+            let name = output.port_name(port).unwrap_or(String::from("<unknown>"));
+            if let Some((device, _name)) = name.split_once(':') {
+                println!("{}: {}", i, device);
+            };
+        }
         return;
     }
 
@@ -88,18 +97,7 @@ fn init_logging(opts: &opts::Opts) {
     }
 }
 
-fn list_midi_outputs() {
-    let output = MidiOutput::new(MIDI_OUTPUT_NAME).unwrap();
-    let ports = output.ports();
-
-    println!("# -> name");
-    for (i, port) in ports.iter().enumerate() {
-        let name = output.port_name(port).unwrap_or(String::from("<unknown>"));
-        if let Some((device, _name)) = name.split_once(':') {
-            println!("{} -> {}", i, device);
-        };
-    }
-}
+fn list_midi_outputs() {}
 
 fn run(opts: opts::Opts) -> Result<!> {
     let output = MidiOutput::new(MIDI_OUTPUT_NAME)?;
@@ -146,7 +144,7 @@ fn run(opts: opts::Opts) -> Result<!> {
         let mut bytes = [0u8, 0, 0];
         match message.copy_to_slice(&mut bytes) {
             Ok(length) => {
-                if let Err(e) = connection.send(&bytes) {
+                if let Err(e) = connection.send(&bytes[..length]) {
                     log::warn!("Error sending MIDI message {:?}: {}", message, e);
                 }
             }
@@ -254,9 +252,11 @@ fn get_midi_note(input: KeyboardInput) -> Option<Note> {
         .and_then(Result::ok)
 }
 
-// TODO Different note mappings, different keyboard layouts (?)
+// TODO Different note mappings
+/// Somewhat arbitrary mapping from scancode to an index in range [0, ??], going left to right, bottom to top
 fn scancode_to_note_index(code: ScanCode) -> Option<u8> {
     /*
+     * (scancode key) on UK Qwerty:
        2 1, 3 2, 4 3, 5 4, 6 5, 7 6, 8 7, 9 8, 10 9, 11 0, 12 _, 13 +
        16 q, 17 w, 18 e, 19 r, 20 t, 21 y, 22 u, 23 i, 24 o, 25 p, 26 [, 27 ]
        30 a, 31 s, 32 d, 33 f, 34 g, 35 h, 36 j, 37 k, 38 l, 39 ;, 40 @, 41 ~
@@ -264,21 +264,15 @@ fn scancode_to_note_index(code: ScanCode) -> Option<u8> {
 
     */
 
-    // TODO make better somehow
-    let index = if code.between(44, 53) {
-        Some(code as u8 - 44)
-    } else if code.between(30, 41) {
-        Some(code as u8 - 20)
-    } else if code == 43 {
-        Some(21)
-    } else if code.between(16, 27) {
-        Some(code as u8 + 6)
-    } else if code.between(2, 13) {
-        Some(code as u8 + 32)
-    } else {
-        None
+    let index = match code {
+        44..=53 => Some(code as u8 - 44),
+        30..=41 => Some(code as u8 - 20),
+        43 => Some(21),
+        16..=27 => Some(code as u8 + 6),
+        2..=13 => Some(code as u8 + 32),
+        _ => None,
     };
-    log::trace!("index for scancode {}: {:?}", code, index);
+    log::trace!("Scancode: {}, index: {:?}", code, index);
     index
 }
 
