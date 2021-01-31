@@ -97,8 +97,6 @@ fn init_logging(opts: &opts::Opts) {
     }
 }
 
-fn list_midi_outputs() {}
-
 fn run(opts: opts::Opts) -> Result<!> {
     let output = MidiOutput::new(MIDI_OUTPUT_NAME)?;
     let ports: &[MidiOutputPort] = &output.ports();
@@ -106,7 +104,12 @@ fn run(opts: opts::Opts) -> Result<!> {
         log::debug!("Connecting to port with name {}", name);
         ports
             .iter()
-            .find(|port| output.port_name(port) == Ok(name.clone()))
+            .find(|port| {
+                output
+                    .port_name(port)
+                    .map(|port_name| port_name.starts_with(&name))
+                    .unwrap_or(false)
+            })
             .ok_or(anyhow!("No MIDI port named {}", name))?
     } else if let Some(index) = opts.port_index {
         log::debug!("Connecting to port with index {}", index);
