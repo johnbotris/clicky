@@ -4,7 +4,10 @@
 use anyhow::{anyhow, Result};
 use core::convert::TryInto;
 use midir::{MidiOutput, MidiOutputPort};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 use winit::{
     event::{self, ElementState::*, Event, KeyboardInput, ScanCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -163,36 +166,41 @@ fn run(opts: opts::Opts) -> Result<!> {
     let channel = opts.channel;
     let velocity = 127u8.try_into().unwrap();
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::CloseRequested => exit(control_flow),
-            WindowEvent::KeyboardInput { input, .. } => {
-                if let Some(action) = process_keyboard_input(input, &mut keys_pressed) {
-                    match action {
-                        Exit => exit(control_flow),
-                        NoteOn(note) => send_midi(MidiMessage::NoteOn(channel, note, velocity)),
-                        NoteOff(note) => {
-                            if sustain_held {
-                                sustained.insert(note);
-                            } else {
-                                send_midi(MidiMessage::NoteOff(channel, note, velocity));
+    event_loop.run(move |event, _, control_flow| {
+        // *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => exit(control_flow),
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let Some(action) = process_keyboard_input(input, &mut keys_pressed) {
+                        match action {
+                            Exit => exit(control_flow),
+                            NoteOn(note) => send_midi(MidiMessage::NoteOn(channel, note, velocity)),
+                            NoteOff(note) => {
+                                if sustain_held {
+                                    sustained.insert(note);
+                                } else {
+                                    send_midi(MidiMessage::NoteOff(channel, note, velocity));
+                                }
                             }
-                        }
-                        Chord => {}
-                        KillAll => {}
-                        SustainOn => sustain_held = true,
-                        SustainOff => {
-                            sustain_held = false;
-                            for note in sustained.drain() {
-                                send_midi(MidiMessage::NoteOff(channel, note, velocity));
+                            Chord => {}
+                            KillAll => {}
+                            SustainOn => sustain_held = true,
+                            SustainOff => {
+                                sustain_held = false;
+                                for note in sustained.drain() {
+                                    send_midi(MidiMessage::NoteOff(channel, note, velocity));
+                                }
                             }
                         }
                     }
                 }
-            }
+                _ => {}
+            },
             _ => {}
-        },
-        _ => {}
+        }
     });
 }
 
