@@ -276,7 +276,7 @@ fn scancode_to_note_index(code: ScanCode) -> Option<u8> {
         _ => None,
     };
     log::trace!("Scancode: {}, index: {:?}", code, index);
-    index
+    index.map(|i| i + 36)
 }
 
 trait Between<T> {
