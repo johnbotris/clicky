@@ -4,8 +4,8 @@ Turn your keyboard into a MIDI keyboard
 
 ## Building
 
-`cargo build`
+`cargo build` (requires nightly rust)
 
-# Running
+## Running
 
 `clicky --help`
