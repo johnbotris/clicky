@@ -140,7 +140,10 @@ fn run(opts: opts::Opts) -> Result<!> {
     log::info!("Connected to midi port \"{}\"", port_name);
 
     let event_loop = EventLoop::new();
-    let _window = WindowBuilder::new().build(&event_loop).unwrap();
+    let _window = WindowBuilder::new()
+        .with_title(env!("CARGO_PKG_NAME"))
+        .build(&event_loop)
+        .unwrap();
     let mut keys_pressed = HashSet::new();
     let mut sustained = HashSet::new(); // TODO this should be handled by the receiver using midi cc sustain
     let mut sustain_held = false;
