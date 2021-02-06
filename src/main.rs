@@ -278,16 +278,3 @@ fn scancode_to_note_index(code: ScanCode) -> Option<u8> {
     log::trace!("Scancode: {}, index: {:?}", code, index);
     index.map(|i| i + 36)
 }
-
-trait Between<T> {
-    fn between(&self, low: T, high: T) -> bool;
-}
-
-impl<T> Between<T> for T
-where
-    T: PartialEq + PartialOrd,
-{
-    fn between(&self, low: T, high: T) -> bool {
-        low <= *self && *self <= high
-    }
-}
