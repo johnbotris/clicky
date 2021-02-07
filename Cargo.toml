@@ -3,15 +3,29 @@ name = "clicky"
 version = "0.1.0"
 authors = ["John Morris <me@johnbotr.is>"]
 edition = "2018"
+build = "build.rs"
+
+[features]
+default = ["tui-mode"]
+
+# Allow running in TUI mode. This is not fully implemented yet, and may never be.
+# Either this or gui-mode must be enabled
+tui-mode = ["tui", "termion"]
+
+# Allow running in GUI mode. This is not fully implemented yet, and may never be.
+# Either this or tui-mode must be enabled
+gui-mode = ["winit"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 structopt = "0"
+clap = "2.33.3"
 midir = "0.7"
 wmidi = "4.0"
-winit = "0.24"
 anyhow = "1.0"
 simple_logger = "1.11"
 log = "0.4"
-clap = "2.33.3"
+termion =  { version = "1.5.6", optional = true }
+tui = { version = "0.14.0", optional = true }
+winit = { version = "0.24", optional = true }

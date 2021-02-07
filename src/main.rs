@@ -48,10 +48,36 @@ fn run(opts: opts::Opts) -> Result<!> {
         }
     };
 
-    let mut app: Box<dyn App> = match opts.ui_mode {
-        opts::UiMode::tui => box tui::TuiApp::new(opts),
-        opts::UiMode::gui => box gui::GuiApp::new(opts),
-    };
+    let mut app = match opts.ui_mode {
+        opts::UiMode::tui => get_tui(opts),
+        opts::UiMode::gui => get_gui(opts),
+    }?;
 
     app.run(handler)
+}
+
+fn get_tui(opts: opts::Opts) -> Result<Box<dyn App>> {
+    #[cfg(any(feature = "default", feature = "tui-mode"))]
+    let result = Ok(box tui::TuiApp::new(opts) as Box<dyn App>);
+
+    #[cfg(not(any(feature = "default", feature = "tui-mode")))]
+    let result = Err(anyhow!(
+        "Build {} with \"tui-mode\" enabled if you want to use the TUI",
+        env!("CARGO_PKG_NAME")
+    ));
+
+    result
+}
+
+fn get_gui(opts: opts::Opts) -> Result<Box<dyn App>> {
+    #[cfg(feature = "gui-mode")]
+    let result = Ok(box gui::GuiApp::new(opts) as Box<dyn App>);
+
+    #[cfg(not(feature = "gui-mode"))]
+    let result = Err(anyhow!(
+        "Build {} with \"gui-mode\" enabled if you want to use the GUI",
+        env!("CARGO_PKG_NAME")
+    ));
+
+    result
 }

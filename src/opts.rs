@@ -41,6 +41,7 @@ pub struct Opts {
     pub ui_mode: UiMode,
 }
 
+// TODO conditionally generate this based on features? or is that too much
 arg_enum! {
     #[allow(non_camel_case_types)]
     #[derive(Debug)]

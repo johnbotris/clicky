@@ -1,3 +1,5 @@
+#![cfg(feature = "gui-mode")]
+
 use std::{collections::HashSet, convert::TryInto};
 use winit::{
     event::{self, ElementState::*, Event, KeyboardInput, ScanCode, WindowEvent},
