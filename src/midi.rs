@@ -1,18 +1,23 @@
-use crate::app::MessageHandler;
+use crate::app::Controller;
 use anyhow::{anyhow, Result};
 use midir::{MidiOutput, MidiOutputConnection, MidiOutputPort};
-use wmidi::{Channel, MidiMessage};
+use std::collections::HashSet;
+use wmidi::{Channel, MidiMessage, Note, U7};
 
-pub struct MidiHandler {
+pub struct MidiController {
     channel: Channel,
     connection: MidiOutputConnection,
+    sustain_held: bool,
+    sustained_notes: HashSet<Note>,
 }
 
-impl MidiHandler {
+impl MidiController {
     pub fn new(channel: Channel, connect_by: ConnectBy, output_name: &str) -> Result<Self> {
         Ok(Self {
             channel,
             connection: connect(connect_by, output_name)?,
+            sustain_held: false,
+            sustained_notes: HashSet::new(),
         })
     }
 
@@ -30,9 +35,35 @@ impl MidiHandler {
     }
 }
 
-impl MessageHandler for MidiHandler {
-    fn handle(&mut self, message: MidiMessage) {
-        self.send_midi(message)
+impl Controller for MidiController {
+    fn note_on(&mut self, note: wmidi::Note, velocity: wmidi::U7) -> Result<()> {
+        todo!()
+    }
+
+    fn note_off(&mut self, note: wmidi::Note) -> Result<()> {
+        if self.sustain_held {
+            self.sustained_notes.insert(note);
+        } else {
+            self.send_midi(MidiMessage::NoteOff(self.channel, note, U7::MIN));
+        }
+        Ok(())
+    }
+
+    fn cc(&mut self, function: wmidi::ControlFunction) -> Result<()> {
+        todo!()
+    }
+
+    fn sustain_on(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn sustain_off(&mut self) -> Result<()> {
+        self.sustain_held = false;
+        let sustained_notes = std::mem::take(&mut self.sustained_notes);
+        for note in sustained_notes {
+            self.send_midi(MidiMessage::NoteOff(self.channel, note, U7::MIN));
+        }
+        Ok(())
     }
 }
 

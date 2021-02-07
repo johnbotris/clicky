@@ -9,7 +9,7 @@ mod midi;
 mod opts;
 mod tui;
 
-use app::{App, MessageHandler};
+use app::{App, Controller};
 
 use anyhow::{anyhow, Result};
 
@@ -26,20 +26,11 @@ fn main() {
     };
 }
 
-fn run(opts: opts::Opts) -> Result<!> {
+fn run(opts: opts::Opts) -> Result<()> {
     logging::init_logging(opts.quiet, opts.verbose);
 
-    let handler: Box<dyn MessageHandler> = match &opts.mode {
-        opts::Mode::midi => {
-            let connect_by = if let Some(name) = &opts.port_name {
-                midi::ConnectBy::Name(name.clone())
-            } else if let Some(index) = opts.port_index {
-                midi::ConnectBy::Index(index)
-            } else {
-                midi::ConnectBy::Default
-            };
-            box crate::midi::MidiHandler::new(opts.channel, connect_by, env!("CARGO_PKG_NAME"))?
-        }
+    let controller: Box<dyn Controller> = match &opts.mode {
+        opts::Mode::midi => get_midi_controller(&opts)?,
         _ => {
             return Err(anyhow!(
             "Mode {} isn't implemented yet. Feel free to send an email to complaints@johnbotr.is",
@@ -48,17 +39,29 @@ fn run(opts: opts::Opts) -> Result<!> {
         }
     };
 
-    let mut app = match opts.ui_mode {
-        opts::UiMode::tui => get_tui(opts),
-        opts::UiMode::gui => get_gui(opts),
-    }?;
-
-    app.run(handler)
+    match opts.ui_mode {
+        opts::UiMode::tui => run_tui(opts, controller),
+        opts::UiMode::gui => run_gui(opts, controller),
+    }
 }
 
-fn get_tui(opts: opts::Opts) -> Result<Box<dyn App>> {
+fn get_midi_controller(opts: &opts::Opts) -> Result<Box<dyn Controller>> {
+    let connect_by = if let Some(name) = &opts.port_name {
+        midi::ConnectBy::Name(name.clone())
+    } else if let Some(index) = opts.port_index {
+        midi::ConnectBy::Index(index)
+    } else {
+        midi::ConnectBy::Default
+    };
+    Ok(
+        box crate::midi::MidiController::new(opts.channel, connect_by, env!("CARGO_PKG_NAME"))?
+            as Box<dyn Controller>,
+    )
+}
+
+fn run_tui(opts: opts::Opts, controller: Box<dyn Controller>) -> Result<()> {
     #[cfg(any(feature = "default", feature = "tui-mode"))]
-    let result = Ok(box tui::TuiApp::new(opts) as Box<dyn App>);
+    let result = tui::TuiApp::new(opts).run(controller);
 
     #[cfg(not(any(feature = "default", feature = "tui-mode")))]
     let result = Err(anyhow!(
@@ -69,9 +72,9 @@ fn get_tui(opts: opts::Opts) -> Result<Box<dyn App>> {
     result
 }
 
-fn get_gui(opts: opts::Opts) -> Result<Box<dyn App>> {
+fn run_gui(opts: opts::Opts, controller: Box<dyn Controller>) -> Result<()> {
     #[cfg(feature = "gui-mode")]
-    let result = Ok(box gui::GuiApp::new(opts) as Box<dyn App>);
+    let result = gui::GuiApp::new(opts).run(controller);
 
     #[cfg(not(feature = "gui-mode"))]
     let result = Err(anyhow!(

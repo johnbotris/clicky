@@ -6,30 +6,68 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
-use wmidi::{MidiMessage, Note};
+use wmidi::Note;
 
-use crate::{app::MessageHandler, opts};
+use crate::{app::Controller, opts};
 
 pub struct GuiApp {
     opts: opts::Opts,
+    keys_pressed: HashSet<ScanCode>,
 }
 
 impl GuiApp {
     pub fn new(opts: opts::Opts) -> Self {
-        Self { opts }
+        Self {
+            opts,
+            keys_pressed: HashSet::new(),
+        }
+    }
+    /// Convert a keyboard input into some kind of action for the MIDI controller, or other
+    fn process_keyboard_input(&mut self, input: KeyboardInput) -> Option<ProcessedKeyboardInput> {
+        use event::VirtualKeyCode::*;
+
+        log::trace!("keyboard input {:?}", input);
+
+        if let Some(Escape) = input.virtual_keycode {
+            return Some(Exit);
+        }
+
+        match input.state {
+            Pressed => {
+                if input.virtual_keycode == Some(Delete) {
+                    Some(KillAll)
+                } else if self.keys_pressed.insert(input.scancode) {
+                    if input.virtual_keycode == Some(Space) {
+                        Some(SustainOn)
+                    } else {
+                        get_midi_note(input).map(NoteOn)
+                    }
+                } else {
+                    None
+                }
+            }
+            Released => {
+                if self.keys_pressed.remove(&input.scancode) {
+                    if input.virtual_keycode == Some(Space) {
+                        Some(SustainOff)
+                    } else {
+                        get_midi_note(input).map(NoteOff)
+                    }
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
 impl crate::app::App for GuiApp {
-    fn run(&mut self, mut handler: Box<dyn MessageHandler>) -> anyhow::Result<!> {
+    fn run(mut self, mut controller: Box<dyn Controller>) -> anyhow::Result<()> {
         let event_loop = EventLoop::new();
         let _window = WindowBuilder::new()
             .with_title(env!("CARGO_PKG_NAME"))
             .build(&event_loop)
             .unwrap();
-        let mut keys_pressed = HashSet::new();
-        let mut sustained = HashSet::new(); // TODO this should be handled by the receiver using midi cc sustain
-        let mut sustain_held = false;
 
         let exit = |control_flow: &mut ControlFlow| {
             log::info!("Exiting...");
@@ -37,40 +75,29 @@ impl crate::app::App for GuiApp {
         };
 
         let channel = self.opts.channel;
-        let velocity = 127u8.try_into().unwrap();
+        let velocity = wmidi::U7::MAX;
 
         event_loop.run(move |event, _, control_flow| {
-            // *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
             *control_flow = ControlFlow::Wait;
 
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => exit(control_flow),
                     WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(action) = process_keyboard_input(input, &mut keys_pressed) {
-                            match action {
-                                Exit => exit(control_flow),
-                                NoteOn(note) => {
-                                    handler.handle(MidiMessage::NoteOn(channel, note, velocity))
-                                }
-                                NoteOff(note) => {
-                                    if sustain_held {
-                                        sustained.insert(note);
-                                    } else {
-                                        handler
-                                            .handle(MidiMessage::NoteOff(channel, note, velocity));
-                                    }
-                                }
-                                Chord => {}
-                                KillAll => {}
-                                SustainOn => sustain_held = true,
-                                SustainOff => {
-                                    sustain_held = false;
-                                    for note in sustained.drain() {
-                                        handler
-                                            .handle(MidiMessage::NoteOff(channel, note, velocity));
-                                    }
-                                }
+                        if let Some(action) = self.process_keyboard_input(input) {
+                            let result = match action {
+                                Exit => Ok(exit(control_flow)),
+                                NoteOn(note) => controller.note_on(note, velocity),
+                                NoteOff(note) => controller.note_off(note),
+                                Chord => Ok(()),
+                                KillAll => Ok(()),
+                                SustainOn => controller.sustain_on(),
+                                SustainOff => controller.sustain_off(),
+                            };
+
+                            if let Err(e) = result {
+                                log::error!("Fatal error: {}", e);
+                                exit(control_flow);
                             }
                         }
                     }
@@ -79,47 +106,6 @@ impl crate::app::App for GuiApp {
                 _ => {}
             }
         });
-    }
-}
-
-/// Convert a keyboard input into some kind of action for the MIDI controller, or other
-fn process_keyboard_input(
-    input: KeyboardInput,
-    keys_pressed: &mut HashSet<ScanCode>,
-) -> Option<ProcessedKeyboardInput> {
-    use event::VirtualKeyCode::*;
-
-    log::trace!("keyboard input {:?}", input);
-
-    if let Some(Escape) = input.virtual_keycode {
-        return Some(Exit);
-    }
-
-    match input.state {
-        Pressed => {
-            if input.virtual_keycode == Some(Delete) {
-                Some(KillAll)
-            } else if keys_pressed.insert(input.scancode) {
-                if input.virtual_keycode == Some(Space) {
-                    Some(SustainOn)
-                } else {
-                    get_midi_note(input).map(NoteOn)
-                }
-            } else {
-                None
-            }
-        }
-        Released => {
-            if keys_pressed.remove(&input.scancode) {
-                if input.virtual_keycode == Some(Space) {
-                    Some(SustainOff)
-                } else {
-                    get_midi_note(input).map(NoteOff)
-                }
-            } else {
-                None
-            }
-        }
     }
 }
 

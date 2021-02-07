@@ -1,10 +1,21 @@
+use anyhow::Result;
+
 pub trait App {
-    fn run(&mut self, handler: Box<dyn MessageHandler>) -> anyhow::Result<!>;
+    /// Provide a user interface to the user, and handle user input by dispatching to the MessageHandler.
+    /// Return Ok when the user chooses to exit, return Err only when encountering a fatal error
+    /// It's annoying that we need to move self here because it means we can't call run on dyn App objects
+    /// but i can't find a workaround the behaviour of winit::EventLoop::run. It's nbd anyway cause there are only
+    /// two App implementations anyway
+    fn run(self, controller: Box<dyn Controller>) -> Result<()>;
 }
 
-pub trait MessageHandler {
-    fn handle(&mut self, message: Message);
+/// Definition for all possible control actions that can happen
+/// Only return Err when encountering a fatal error
+/// TODO make backend agnostic? ie. maybe we later implement for OSC, or socket connections or something
+pub trait Controller {
+    fn note_on(&mut self, note: wmidi::Note, velocity: wmidi::U7) -> Result<()>;
+    fn note_off(&mut self, note: wmidi::Note) -> Result<()>;
+    fn cc(&mut self, function: wmidi::ControlFunction) -> Result<()>;
+    fn sustain_on(&mut self) -> Result<()>;
+    fn sustain_off(&mut self) -> Result<()>;
 }
-
-// TODO Don't use MidiMessage directly here, later we might want to use OSC, or connect to some sockets or something cool like that
-pub type Message<'a> = wmidi::MidiMessage<'a>;
