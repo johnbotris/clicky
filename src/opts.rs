@@ -1,3 +1,4 @@
+use clap::arg_enum;
 use structopt::StructOpt;
 
 pub fn get_opts() -> Opts {
@@ -25,11 +26,38 @@ pub struct Opts {
 
     /// Output more information, can be passed multiple times
     #[structopt(short, parse(from_occurrences))]
-    pub verbose: u64,
+    pub verbose: i8,
 
     /// Output less information, can be passed multiple times
     #[structopt(short, parse(from_occurrences))]
-    pub quiet: u64,
+    pub quiet: i8,
+
+    /// Output mode
+    #[structopt(short, long, possible_values = &Mode::variants(), default_value = "midi", case_insensitive = true)]
+    pub mode: Mode,
+
+    /// Ui Mode (tui uses tui-rs, gui uses winit + ? (unimplemented))
+    #[structopt(short, long, possible_values = &UiMode::variants(), default_value = "tui", case_insensitive = true)]
+    pub ui_mode: UiMode,
+}
+
+arg_enum! {
+    #[allow(non_camel_case_types)]
+    #[derive(Debug)]
+    pub enum UiMode {
+        tui,
+        gui
+    }
+}
+
+arg_enum! {
+    #[allow(non_camel_case_types)]
+    #[derive(Debug, Clone)]
+    pub enum Mode {
+        midi,
+        osc,
+        socket
+    }
 }
 
 fn get_channel(s: &str) -> anyhow::Result<wmidi::Channel> {

@@ -1,15 +1,17 @@
+#![feature(box_syntax)]
 #![feature(never_type)]
 #![feature(str_split_once)]
 
 mod app;
 mod gui;
+mod logging;
 mod midi;
 mod opts;
 mod tui;
 
-use app::App;
+use app::{App, MessageHandler};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 fn main() {
     let opts = opts::get_opts();
@@ -25,18 +27,31 @@ fn main() {
 }
 
 fn run(opts: opts::Opts) -> Result<!> {
-    let connection = midi::connect(
-        if let Some(name) = &opts.port_name {
-            midi::ConnectBy::Name(name.clone())
-        } else if let Some(index) = opts.port_index {
-            midi::ConnectBy::Index(index)
-        } else {
-            midi::ConnectBy::Default
-        },
-        env!("CARGO_PKG_NAME"),
-    )?;
+    logging::init_logging(opts.quiet, opts.verbose);
 
-    let app = gui::GuiApp::new(opts);
+    let handler: Box<dyn MessageHandler> = match &opts.mode {
+        opts::Mode::midi => {
+            let connect_by = if let Some(name) = &opts.port_name {
+                midi::ConnectBy::Name(name.clone())
+            } else if let Some(index) = opts.port_index {
+                midi::ConnectBy::Index(index)
+            } else {
+                midi::ConnectBy::Default
+            };
+            box crate::midi::MidiHandler::new(opts.channel, connect_by, env!("CARGO_PKG_NAME"))?
+        }
+        _ => {
+            return Err(anyhow!(
+            "Mode {} isn't implemented yet. Feel free to send an email to complaints@johnbotr.is",
+            opts.mode
+        ))
+        }
+    };
 
-    app.run(connection)
+    let mut app: Box<dyn App> = match opts.ui_mode {
+        opts::UiMode::tui => box tui::TuiApp::new(opts),
+        opts::UiMode::gui => box gui::GuiApp::new(opts),
+    };
+
+    app.run(handler)
 }

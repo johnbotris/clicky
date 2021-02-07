@@ -1,5 +1,40 @@
+use crate::app::MessageHandler;
 use anyhow::{anyhow, Result};
 use midir::{MidiOutput, MidiOutputConnection, MidiOutputPort};
+use wmidi::{Channel, MidiMessage};
+
+pub struct MidiHandler {
+    channel: Channel,
+    connection: MidiOutputConnection,
+}
+
+impl MidiHandler {
+    pub fn new(channel: Channel, connect_by: ConnectBy, output_name: &str) -> Result<Self> {
+        Ok(Self {
+            channel,
+            connection: connect(connect_by, output_name)?,
+        })
+    }
+
+    fn send_midi(&mut self, message: MidiMessage) {
+        log::trace!("midi message: {:?}", message);
+        let mut bytes = [0u8, 0, 0];
+        match message.copy_to_slice(&mut bytes) {
+            Ok(length) => {
+                if let Err(e) = self.connection.send(&bytes[..length]) {
+                    log::warn!("Error sending MIDI message {:?}: {}", message, e);
+                }
+            }
+            Err(err) => log::warn!("Error generating MIDI bytes: {}", err),
+        };
+    }
+}
+
+impl MessageHandler for MidiHandler {
+    fn handle(&mut self, message: MidiMessage) {
+        self.send_midi(message)
+    }
+}
 
 pub enum ConnectBy {
     Name(String),

@@ -6,7 +6,7 @@ use winit::{
 };
 use wmidi::{MidiMessage, Note};
 
-use crate::opts;
+use crate::{app::MessageHandler, opts};
 
 pub struct GuiApp {
     opts: opts::Opts,
@@ -14,31 +14,12 @@ pub struct GuiApp {
 
 impl GuiApp {
     pub fn new(opts: opts::Opts) -> Self {
-        init_logging(&opts);
         Self { opts }
     }
 }
 
-fn init_logging(opts: &opts::Opts) {
-    use log::LevelFilter::*;
-    use std::cmp::{max, min};
-
-    let default = 3;
-    let verbose = opts.verbose as i64;
-    let quiet = opts.quiet as i64;
-    let level = min(max(default + verbose - quiet, 0), 5);
-    assert!(level <= 5);
-    match simple_logger::SimpleLogger::new()
-        .with_level([Off, Error, Warn, Info, Debug, Trace][level as usize])
-        .init()
-    {
-        Ok(_) => log::trace!("Logging initialized"),
-        Err(e) => eprintln!("Failed to initialize logging: {}", e),
-    }
-}
-
 impl crate::app::App for GuiApp {
-    fn run(self, mut midi_connection: midir::MidiOutputConnection) -> anyhow::Result<!> {
+    fn run(&mut self, mut handler: Box<dyn MessageHandler>) -> anyhow::Result<!> {
         let event_loop = EventLoop::new();
         let _window = WindowBuilder::new()
             .with_title(env!("CARGO_PKG_NAME"))
@@ -47,19 +28,6 @@ impl crate::app::App for GuiApp {
         let mut keys_pressed = HashSet::new();
         let mut sustained = HashSet::new(); // TODO this should be handled by the receiver using midi cc sustain
         let mut sustain_held = false;
-
-        let mut send_midi = move |message: MidiMessage| {
-            log::trace!("midi message: {:?}", message);
-            let mut bytes = [0u8, 0, 0];
-            match message.copy_to_slice(&mut bytes) {
-                Ok(length) => {
-                    if let Err(e) = midi_connection.send(&bytes[..length]) {
-                        log::warn!("Error sending MIDI message {:?}: {}", message, e);
-                    }
-                }
-                Err(err) => log::warn!("Error generating MIDI bytes: {}", err),
-            };
-        };
 
         let exit = |control_flow: &mut ControlFlow| {
             log::info!("Exiting...");
@@ -81,13 +49,14 @@ impl crate::app::App for GuiApp {
                             match action {
                                 Exit => exit(control_flow),
                                 NoteOn(note) => {
-                                    send_midi(MidiMessage::NoteOn(channel, note, velocity))
+                                    handler.handle(MidiMessage::NoteOn(channel, note, velocity))
                                 }
                                 NoteOff(note) => {
                                     if sustain_held {
                                         sustained.insert(note);
                                     } else {
-                                        send_midi(MidiMessage::NoteOff(channel, note, velocity));
+                                        handler
+                                            .handle(MidiMessage::NoteOff(channel, note, velocity));
                                     }
                                 }
                                 Chord => {}
@@ -96,7 +65,8 @@ impl crate::app::App for GuiApp {
                                 SustainOff => {
                                     sustain_held = false;
                                     for note in sustained.drain() {
-                                        send_midi(MidiMessage::NoteOff(channel, note, velocity));
+                                        handler
+                                            .handle(MidiMessage::NoteOff(channel, note, velocity));
                                     }
                                 }
                             }
