@@ -7,7 +7,6 @@ mod gui;
 mod logging;
 mod midi;
 mod opts;
-mod tui;
 
 use app::{App, Controller};
 
@@ -39,10 +38,7 @@ fn run(opts: opts::Opts) -> Result<()> {
         }
     };
 
-    match opts.ui_mode {
-        opts::UiMode::tui => run_tui(opts, controller),
-        opts::UiMode::gui => run_gui(opts, controller),
-    }
+    gui::GuiApp::new(opts).run(controller)
 }
 
 fn get_midi_controller(opts: &opts::Opts) -> Result<Box<dyn Controller>> {
@@ -57,30 +53,4 @@ fn get_midi_controller(opts: &opts::Opts) -> Result<Box<dyn Controller>> {
         box crate::midi::MidiController::new(opts.channel, connect_by, env!("CARGO_PKG_NAME"))?
             as Box<dyn Controller>,
     )
-}
-
-fn run_tui(opts: opts::Opts, controller: Box<dyn Controller>) -> Result<()> {
-    #[cfg(any(feature = "default", feature = "tui-mode"))]
-    let result = tui::TuiApp::new(opts).run(controller);
-
-    #[cfg(not(any(feature = "default", feature = "tui-mode")))]
-    let result = Err(anyhow!(
-        "Build {} with \"tui-mode\" enabled if you want to use the TUI",
-        env!("CARGO_PKG_NAME")
-    ));
-
-    result
-}
-
-fn run_gui(opts: opts::Opts, controller: Box<dyn Controller>) -> Result<()> {
-    #[cfg(feature = "gui-mode")]
-    let result = gui::GuiApp::new(opts).run(controller);
-
-    #[cfg(not(feature = "gui-mode"))]
-    let result = Err(anyhow!(
-        "Build {} with \"gui-mode\" enabled if you want to use the GUI",
-        env!("CARGO_PKG_NAME")
-    ));
-
-    result
 }

@@ -37,7 +37,8 @@ impl MidiController {
 
 impl Controller for MidiController {
     fn note_on(&mut self, note: wmidi::Note, velocity: wmidi::U7) -> Result<()> {
-        todo!()
+        self.send_midi(MidiMessage::NoteOn(self.channel, note, velocity));
+        Ok(())
     }
 
     fn note_off(&mut self, note: wmidi::Note) -> Result<()> {
@@ -54,7 +55,8 @@ impl Controller for MidiController {
     }
 
     fn sustain_on(&mut self) -> Result<()> {
-        todo!()
+        self.sustain_held = true;
+        Ok(())
     }
 
     fn sustain_off(&mut self) -> Result<()> {
