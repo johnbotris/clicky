@@ -1,3 +1,2 @@
 {
-  "rust-analyzer.cargo.features": [ "default", "tui-mode", "gui-mode" ]
 }
