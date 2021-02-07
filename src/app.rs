@@ -4,8 +4,8 @@ pub trait App {
     /// Provide a user interface to the user, and handle user input by dispatching to the MessageHandler.
     /// Return Ok when the user chooses to exit, return Err only when encountering a fatal error
     /// It's annoying that we need to move self here because it means we can't call run on dyn App objects
-    /// but i can't find a workaround the behaviour of winit::EventLoop::run. It's nbd anyway cause there are only
-    /// two App implementations anyway
+    /// but i can't find a workaround for the way winit::EventLoop::run works. Doesn't matter anyway since
+    /// theres only one implementation...
     fn run(self, controller: Box<dyn Controller>) -> Result<()>;
 }
 

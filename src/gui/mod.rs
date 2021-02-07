@@ -73,7 +73,8 @@ impl crate::app::App for GuiApp {
         };
 
         let channel = self.opts.channel;
-        let velocity = wmidi::U7::MAX;
+        let full_velocity = wmidi::U7::MAX;
+        let half_velocity = unsafe { wmidi::U7::from_unchecked(64u8) };
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
@@ -85,7 +86,14 @@ impl crate::app::App for GuiApp {
                         if let Some(action) = self.process_keyboard_input(input) {
                             let result = match action {
                                 Exit => Ok(exit(control_flow)),
-                                NoteOn(note) => controller.note_on(note, velocity),
+                                NoteOn(note) => controller.note_on(
+                                    note,
+                                    if input.modifiers.shift() {
+                                        half_velocity
+                                    } else {
+                                        full_velocity
+                                    },
+                                ),
                                 NoteOff(note) => controller.note_off(note),
                                 Chord => Ok(()),
                                 KillAll => Ok(()),

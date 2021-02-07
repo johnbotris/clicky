@@ -35,20 +35,6 @@ pub struct Opts {
     /// Output mode
     #[structopt(short, long, possible_values = &Mode::variants(), default_value = "midi", case_insensitive = true)]
     pub mode: Mode,
-
-    /// Ui Mode (tui uses tui-rs, gui uses winit + ? (unimplemented))
-    #[structopt(short, long, possible_values = &UiMode::variants(), default_value = "tui", case_insensitive = true)]
-    pub ui_mode: UiMode,
-}
-
-// TODO conditionally generate this based on features? or is that too much
-arg_enum! {
-    #[allow(non_camel_case_types)]
-    #[derive(Debug)]
-    pub enum UiMode {
-        tui,
-        gui
-    }
 }
 
 arg_enum! {
